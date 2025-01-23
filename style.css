@@ -1,0 +1,113 @@
+/* General Layout */
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #f9f9f9;
+}
+
+header {
+    background: #4CAF50;
+    color: white;
+    padding: 20px;
+    text-align: center;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.8rem;
+}
+
+nav {
+    background: #ddd;
+    padding: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+}
+
+.tablink {
+    background: #eee;
+    border: 1px solid #ccc;
+    padding: 8px 15px;
+    cursor: pointer;
+}
+
+.tablink:hover {
+    background: #e2e2e2;
+}
+
+main {
+    min-height: 600px;
+}
+
+/* Tabs */
+.tab-content {
+    display: none;
+    padding: 20px;
+    background: #fff;
+    margin: 10px;
+    border: 1px solid #ccc;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.section {
+    margin-bottom: 20px;
+}
+
+.warning {
+    color: red;
+    margin-top: 5px;
+}
+
+/* Results & Display Boxes */
+.results-box {
+    background: #f7f7f7;
+    min-height: 40px;
+    border: 1px solid #ccc;
+    padding: 10px;
+    font-family: monospace;
+    margin-top: 5px;
+    white-space: pre-wrap;
+}
+
+.fasta-header {
+    font-weight: bold;
+    margin: 10px 0 5px 0;
+}
+
+.fasta-sequence {
+    font-family: monospace;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    background: #fafafa;
+    border-left: 3px solid #4CAF50;
+    padding: 5px;
+    margin-bottom: 10px;
+}
+
+/* Highlighted search text */
+.highlight {
+    background-color: yellow;
+    color: black;
+}
+
+/* 3D Viewer */
+.viewer-3d {
+    width: 600px;
+    height: 400px;
+    border: 1px solid #ccc;
+    margin-top: 15px;
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    font-size: 0.8rem;
+    color: #666;
+    padding: 10px;
+    border-top: 1px solid #ccc;
+    background: #f0f0f0;
+}
