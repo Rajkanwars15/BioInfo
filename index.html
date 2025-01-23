@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BioInfo</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 3Dmol.js for PDB visualization -->
+    <script src="https://unpkg.com/3dmol/build/3Dmol-min.js"></script>
+</head>
+<body>
+
+<header>
+    <h1>BioInfo</h1>
+    <p>Copyright ©
+        <a href="https://github.com/Rajkanwars15" target="_blank" style="color:inherit;">
+            Rajkanwar Singh
+        </a>
+    </p>
+</header>
+
+<nav>
+    <button class="tablink" data-tab="homeTab">Home</button>
+    <button class="tablink" data-tab="sequenceTab">Sequence Analysis</button>
+    <button class="tablink" data-tab="structureTab">3D Structure</button>
+    <button class="tablink" data-tab="moreToolsTab">More Tools</button>
+</nav>
+
+<main>
+    <!-- HOME TAB -->
+    <section id="homeTab" class="tab-content active">
+        <h2>Welcome to BioInfo</h2>
+        <p>
+            This client-side application allows you to upload FASTA and PDB files to perform
+            various bioinformatics analyses in your web browser—no server required.
+        </p>
+
+        <div class="section">
+            <h3>Upload FASTA File</h3>
+            <input type="file" id="fastaFile" accept=".fasta,.fa,.txt">
+            <button id="loadFastaBtn">Load FASTA</button>
+            <div id="fastaLoadMsg" class="warning"></div>
+        </div>
+
+        <div class="section">
+            <h3>Upload PDB File</h3>
+            <input type="file" id="pdbFile" accept=".pdb">
+            <button id="loadPdbBtn">Load PDB</button>
+            <div id="pdbLoadMsg" class="warning"></div>
+        </div>
+    </section>
+
+    <!-- SEQUENCE ANALYSIS TAB -->
+    <section id="sequenceTab" class="tab-content">
+        <h2>Sequence Analysis</h2>
+
+        <!-- Display loaded FASTA sequences -->
+        <div id="fastaDisplay" class="section"></div>
+
+        <!-- Search in loaded sequences -->
+        <div class="section">
+            <h4>Search in Sequences</h4>
+            <input type="text" id="searchQuery" placeholder="Subsequence or pattern">
+            <button id="searchBtn">Search</button>
+        </div>
+
+        <!-- GC content -->
+        <div class="section">
+            <h4>GC Content (DNA)</h4>
+            <button id="gcBtn">Calculate GC%</button>
+            <button onclick="downloadResults('gcResults','gc_content.txt')">Download</button>
+            <pre id="gcResults" class="results-box"></pre>
+        </div>
+
+        <!-- Reverse Complement -->
+        <div class="section">
+            <h4>Reverse Complement (DNA)</h4>
+            <button id="revCompBtn">Get Reverse Complement</button>
+            <button onclick="downloadResults('revCompResults','reverse_complement.txt')">Download</button>
+            <pre id="revCompResults" class="results-box"></pre>
+        </div>
+
+        <!-- Translation -->
+        <div class="section">
+            <h4>Translate (DNA → Protein)</h4>
+            <button id="translateBtn">Translate</button>
+            <button onclick="downloadResults('translateResults','translation.txt')">Download</button>
+            <pre id="translateResults" class="results-box"></pre>
+        </div>
+    </section>
+
+    <!-- 3D STRUCTURE TAB -->
+    <section id="structureTab" class="tab-content">
+        <h2>3D Structure Visualization</h2>
+        <p>
+            After uploading a PDB file (Home tab), click “Render Structure” to visualize it.
+        </p>
+        <button id="render3DBtn">Render Structure</button>
+        <div id="viewer3D" class="viewer-3d"></div>
+    </section>
+
+    <!-- MORE TOOLS TAB -->
+    <section id="moreToolsTab" class="tab-content">
+        <h2>More Tools</h2>
+
+        <!-- Sequence Statistics -->
+        <div class="section">
+            <h4>Sequence Statistics</h4>
+            <p>Shows length & composition. (Auto-detects if DNA or Protein by character usage.)</p>
+            <button id="statsBtn">Compute Stats</button>
+            <button onclick="downloadResults('statsResults','sequence_stats.txt')">Download</button>
+            <pre id="statsResults" class="results-box"></pre>
+        </div>
+
+        <!-- Melting Temperature (Wallace Rule) -->
+        <div class="section">
+            <h4>Melting Temperature (Tm) for Short DNA</h4>
+            <p>2°C × (#A + #T) + 4°C × (#G + #C) if length ≤ 14 nt.</p>
+            <button id="tmBtn">Calculate Tm</button>
+            <button onclick="downloadResults('tmResults','melting_temp.txt')">Download</button>
+            <pre id="tmResults" class="results-box"></pre>
+        </div>
+
+        <!-- Motif Finder -->
+        <div class="section">
+            <h4>Motif Finder (Regex)</h4>
+            <p>Enter a regex pattern (e.g., <code>ATG[ATGC]{2}T</code>) to find positions in loaded sequences.</p>
+            <input type="text" id="motifPattern" placeholder="e.g. CGA[TA]T">
+            <button id="motifBtn">Find Motif</button>
+            <button onclick="downloadResults('motifResults','motif_matches.txt')">Download</button>
+            <pre id="motifResults" class="results-box"></pre>
+        </div>
+
+        <!-- Motif Counter -->
+        <div class="section">
+            <h4>Motif Counter (Regex)</h4>
+            <p>Enter a regex pattern (e.g., <code>CG</code> or <code>ATG[ATGC]{3}</code>) to count total occurrences in each sequence.</p>
+            <input type="text" id="motifCountPattern" placeholder="e.g. CG">
+            <button id="motifCountBtn">Count Motif</button>
+            <button onclick="downloadResults('motifCountResults','motif_count.txt')">Download</button>
+            <pre id="motifCountResults" class="results-box"></pre>
+        </div>
+
+        <!-- ORF Finder -->
+        <div class="section">
+            <h4>Open Reading Frame (ORF) Finder</h4>
+            <p>Find ORFs starting with <code>ATG</code> and ending with <code>TAA/TAG/TGA</code> in each of the three forward frames.</p>
+            <button id="orfBtn">Find ORFs</button>
+            <button onclick="downloadResults('orfResults','orfs.txt')">Download</button>
+            <pre id="orfResults" class="results-box"></pre>
+        </div>
+
+        <!-- K-mer Frequency -->
+        <div class="section">
+            <h4>K-mer Frequency Analysis</h4>
+            <label for="kmerSize">K = </label>
+            <input type="number" id="kmerSize" min="1" value="3">
+            <button id="kmerBtn">Compute Frequencies</button>
+            <button onclick="downloadResults('kmerResults','kmer_frequencies.txt')">Download</button>
+            <pre id="kmerResults" class="results-box"></pre>
+        </div>
+
+    </section>
+</main>
+
+<footer>
+    <p>BioInfo &mdash; All client-side, no server required.</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
