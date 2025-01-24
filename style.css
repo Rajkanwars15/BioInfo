@@ -1,4 +1,4 @@
-/* Loading Overlay */
+/* LOADING OVERLAY */
 #loadingOverlay {
     position: fixed;
     display: none;
@@ -19,7 +19,7 @@
     border: 2px solid #4CAF50;
 }
 
-/* Global Layout & Styling */
+/* Global */
 body {
     margin: 0;
     font-family: Arial, sans-serif;
@@ -45,7 +45,6 @@ nav#topNav {
     gap: 10px;
     justify-content: center;
 }
-
 .tablink {
     background: #eee;
     border: 1px solid #ccc;
@@ -60,7 +59,7 @@ main {
     min-height: 600px;
 }
 
-/* Tab Sections */
+/* TABS */
 .tab-content {
     display: none;
     padding: 20px;
@@ -99,7 +98,7 @@ main {
     margin-bottom: 10px;
 }
 
-/* Results Box, Canvas, etc. */
+/* Results Boxes, Canvas, etc. */
 .results-box {
     background: #f7f7f7;
     min-height: 40px;
@@ -109,8 +108,6 @@ main {
     margin-top: 5px;
     white-space: pre-wrap;
 }
-
-/* 3D Viewer Container */
 .viewer-3d {
     width: 600px;
     height: 400px;
@@ -128,7 +125,7 @@ main {
     cursor: pointer;
 }
 
-/* Dark Mode Toggling (initially off) */
+/* Dark Mode */
 body.dark-mode {
     background: #333;
     color: #ccc;

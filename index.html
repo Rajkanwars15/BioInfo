@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <title>BioInfo+</title>
     <link rel="stylesheet" href="style.css">
-    <!-- 3Dmol.js for optional PDB structure visualization -->
+    <!-- 3Dmol.js (optional PDB structure visualization) -->
     <script src="https://unpkg.com/3dmol/build/3Dmol-min.js"></script>
+    <!-- pako.js for simple in-browser compression (used in Sequence Compression) -->
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 </head>
 <body>
 
-<!-- Loading Overlay (for large file loads, fetch, etc.) -->
+<!-- LOADING OVERLAY -->
 <div id="loadingOverlay">
     <div id="loadingMessage">Loading...</div>
 </div>
@@ -19,12 +21,15 @@
     <p>All-in-One Frontend Bioinformatics Toolkit</p>
 </header>
 
+<!-- MAIN NAV -->
 <nav id="topNav">
     <button class="tablink" data-tab="inputTab">Input &amp; Setup</button>
-    <button class="tablink" data-tab="analysisTab">Sequence Analysis</button>
-    <button class="tablink" data-tab="vizTab">Visualization</button>
-    <button class="tablink" data-tab="structureTab">3D Structure</button>
+    <button class="tablink" data-tab="analysisTab">Analysis &amp; Editing</button>
+    <button class="tablink" data-tab="vizTab">Visualizations</button>
+    <button class="tablink" data-tab="comparisonTab">Comparisons &amp; Mapping</button>
+    <button class="tablink" data-tab="geneTab">Gene &amp; Genome Tools</button>
     <button class="tablink" data-tab="utilsTab">Utilities</button>
+    <button class="tablink" data-tab="structureTab">3D Structure</button>
 </nav>
 
 <main>
@@ -33,8 +38,8 @@
         <h2>Input &amp; Setup</h2>
 
         <div class="section">
-            <h3>FASTA Upload (Chunk-based for large files)</h3>
-            <p>Supports large files (50–100 MB). Try the chunk load if standard load is too big.</p>
+            <h3>FASTA Upload (Chunk-based for Large Files)</h3>
+            <p>Handles large files (50–100MB). You can choose naive or chunk-based reading.</p>
             <input type="file" id="fastaFile" accept=".fasta,.fa,.txt" multiple>
             <button id="loadFastaBtn">Load FASTA (Naive)</button>
             <button id="chunkFastaBtn">Load FASTA (Chunked)</button>
@@ -50,116 +55,115 @@
 
         <div class="section">
             <h3>Drag-and-Drop</h3>
-            <p>Drag a FASTA file onto this zone.</p>
             <div id="dropZone" class="drop-zone">Drop FASTA files here</div>
             <div id="dropMsg" class="warning"></div>
         </div>
 
         <div class="section">
             <h3>Random FASTA Generator</h3>
-            <label>Number of sequences:
-                <input type="number" id="randCount" value="2" min="1" style="width:60px;">
-            </label>
-            <label>Length of each:
-                <input type="number" id="randLength" value="50" min="1" style="width:60px;">
-            </label>
+            <label># Sequences: <input type="number" id="randCount" value="2"></label>
+            <label>Length: <input type="number" id="randLength" value="50"></label>
             <button id="genRandomFastaBtn">Generate</button>
             <div id="randomFastaMsg" class="warning"></div>
         </div>
     </section>
 
-    <!-- TAB 2: SEQUENCE ANALYSIS -->
+    <!-- TAB 2: ANALYSIS & EDITING -->
     <section id="analysisTab" class="tab-content">
-        <h2>Sequence Analysis</h2>
+        <h2>Analysis &amp; Editing</h2>
 
+        <!-- SEQUENCE VALIDATION -->
+        <div class="section">
+            <h3>Sequence Validation</h3>
+            <button id="validateBtn">Validate Sequences</button>
+            <button onclick="downloadResults('validateOutput','validation_report.txt')">Download</button>
+            <pre id="validateOutput" class="results-box"></pre>
+        </div>
+
+        <!-- LOADED SEQUENCES DISPLAY -->
         <div class="section">
             <h3>Loaded Sequences</h3>
             <div id="fastaDisplay"></div>
         </div>
 
+        <!-- SEARCH & FILTERS, SAVE FILTERS -->
         <div class="section">
-            <h3>Search &amp; Filter</h3>
-            <input type="text" id="seqSearch" placeholder="Search in headers or sequences">
+            <h3>Search &amp; Filters</h3>
+            <input type="text" id="seqSearch" placeholder="Search in headers/seq">
             <button id="seqSearchBtn">Search</button>
-
-            <input type="text" id="hdrFilter" placeholder="Filter by header substring">
+            <input type="text" id="hdrFilter" placeholder="Filter by header">
             <button id="hdrFilterBtn">Filter Headers</button>
+            <button id="saveFilterBtn">Save Current Filters</button>
+            <button id="applySavedFilterBtn">Apply Saved Filters</button>
+            <pre id="saveFilterOutput" class="results-box"></pre>
         </div>
 
+        <!-- INTERACTIVE SEQUENCE VIEWER -->
         <div class="section">
-            <h3>Reverse Complement (DNA)</h3>
-            <button id="revCompBtn">Compute</button>
+            <h3>Interactive Sequence Viewer</h3>
+            <p>Use the slider to scroll through the first loaded sequence at a chosen width.</p>
+            <label>Window Size: <input type="number" id="seqWindowSize" value="50"></label>
+            <label>Position: <input type="range" id="seqWindowPos" value="0" min="0" max="100"></label>
+            <pre id="interactiveViewer" class="results-box"></pre>
+        </div>
+
+        <!-- REVERSE COMPLEMENT & GC & LENGTH & CHARCOUNT -->
+        <div class="section">
+            <h3>Basic Tools (Reverse Complement, GC%, Length, Character Count)</h3>
+            <button id="revCompBtn">Reverse Comp</button>
             <button onclick="downloadResults('revCompOutput','reverse_complements.fasta')">Download</button>
             <pre id="revCompOutput" class="results-box"></pre>
-        </div>
 
-        <div class="section">
-            <h3>GC Content (DNA)</h3>
-            <button id="gcBtn">Calculate</button>
+            <button id="gcBtn">GC% Calc</button>
             <button onclick="downloadResults('gcOutput','gc_content.txt')">Download</button>
             <pre id="gcOutput" class="results-box"></pre>
-        </div>
 
-        <div class="section">
-            <h3>Sequence Lengths</h3>
-            <button id="lengthBtn">Show Lengths</button>
-            <button onclick="downloadResults('lengthOutput','sequence_lengths.txt')">Download</button>
+            <button id="lengthBtn">Sequence Lengths</button>
+            <button onclick="downloadResults('lengthOutput','lengths.txt')">Download</button>
             <pre id="lengthOutput" class="results-box"></pre>
-        </div>
 
-        <div class="section">
-            <h3>Character Count</h3>
-            <button id="charCountBtn">Count Characters</button>
-            <button onclick="downloadResults('charCountOutput','character_counts.txt')">Download</button>
+            <button id="charCountBtn">Char Count</button>
+            <button onclick="downloadResults('charCountOutput','char_counts.txt')">Download</button>
             <pre id="charCountOutput" class="results-box"></pre>
         </div>
 
+        <!-- MOTIF -->
         <div class="section">
-            <h3>Motif Search &amp; Motif Counter (Regex)</h3>
+            <h3>Motif Search &amp; Counter (Regex)</h3>
             <input type="text" id="motifRegex" placeholder="e.g. ATG[ATGC]{2}">
             <button id="motifSearchBtn">Find Motifs</button>
             <button id="motifCountBtn">Count Motifs</button>
-            <button onclick="downloadResults('motifOutput','motif_results.txt')">Download</button>
+            <button onclick="downloadResults('motifOutput','motif_search.txt')">Download</button>
             <pre id="motifOutput" class="results-box"></pre>
         </div>
 
+        <!-- TRANSCRIPTION / TRANSLATION / CODON USAGE / ORF -->
         <div class="section">
-            <h3>Transcription (DNA → RNA)</h3>
-            <button id="transcribeBtn">Transcribe</button>
-            <button onclick="downloadResults('transcribeOutput','transcribed_rna.fasta')">Download</button>
+            <h3>Transcription &amp; Translation</h3>
+            <button id="transcribeBtn">Transcribe (DNA→RNA)</button>
+            <button onclick="downloadResults('transcribeOutput','transcribed.fasta')">Download</button>
             <pre id="transcribeOutput" class="results-box"></pre>
-        </div>
 
-        <div class="section">
-            <h3>Translation (RNA → Protein)</h3>
-            <button id="translateBtn">Translate</button>
-            <button onclick="downloadResults('translateOutput','translated_protein.fasta')">Download</button>
+            <button id="translateBtn">Translate (RNA→Protein)</button>
+            <button onclick="downloadResults('translateOutput','translated.txt')">Download</button>
             <pre id="translateOutput" class="results-box"></pre>
-        </div>
 
-        <div class="section">
-            <h3>Codon Usage Analysis (DNA)</h3>
-            <button id="codonUsageBtn">Compute</button>
+            <button id="codonUsageBtn">Codon Usage (DNA)</button>
             <button onclick="downloadResults('codonUsageOutput','codon_usage.txt')">Download</button>
             <pre id="codonUsageOutput" class="results-box"></pre>
-        </div>
 
-        <div class="section">
-            <h3>Open Reading Frame (ORF) Finder</h3>
             <button id="orfBtn">Find ORFs</button>
             <button onclick="downloadResults('orfOutput','orfs.txt')">Download</button>
             <pre id="orfOutput" class="results-box"></pre>
         </div>
 
+        <!-- SUBSEQ HIGHLIGHT & STATS & SORT & REVERSE VISUAL TOGGLE -->
         <div class="section">
-            <h3>Subsequence Highlighting</h3>
-            <input type="text" id="highlightSubseq" placeholder="Subsequence to highlight">
+            <h3>Subsequence Highlight &amp; Sorting</h3>
+            <input type="text" id="highlightSubseq" placeholder="Subsequence">
             <button id="highlightBtn">Highlight</button>
-        </div>
 
-        <div class="section">
-            <h3>FASTA Stats &amp; Sorting</h3>
-            <button id="statsBtn">Show Stats</button>
+            <button id="statsBtn">Show FASTA Stats</button>
             <select id="sortMode">
                 <option value="length">Sort by Length</option>
                 <option value="gc">Sort by GC%</option>
@@ -167,116 +171,245 @@
             </select>
             <button id="sortBtn">Sort</button>
             <pre id="statsOutput" class="results-box"></pre>
+
+            <button id="toggleReverseViewBtn">Toggle Reverse View</button>
         </div>
 
+        <!-- DYNAMIC TRIMMING -->
         <div class="section">
             <h3>Sequence Editing &amp; Trimming</h3>
-            <p>
-                Specify <strong>start</strong> and <strong>end</strong> (1-based) or leave blank to keep from the beginning/end.
-                Example: start=6, end=50 removes the first 5 bases and everything after 50.
-            </p>
-            <label for="trimStart">Start:</label>
-            <input type="number" id="trimStart" min="1" style="width:70px;">
-            <label for="trimEnd">End:</label>
-            <input type="number" id="trimEnd" min="1" style="width:70px;">
-            <button id="trimBtn">Apply Trimming</button>
-            <button id="loadTrimmedBtn">Load Modified as New Set</button>
-            <button onclick="downloadResults('editOutput','trimmed_sequences.fasta')">Download</button>
+            <label>Start: <input type="number" id="trimStart"></label>
+            <label>End: <input type="number" id="trimEnd"></label>
+            <button id="trimBtn">Apply</button>
+            <button id="loadTrimmedBtn">Load Trimmed as New Set</button>
+            <button onclick="downloadResults('editOutput','trimmed.fasta')">Download</button>
             <pre id="editOutput" class="results-box"></pre>
         </div>
 
+        <!-- PALINDROME & RESTRICTION & MULTIPLE EXPORT & MASKING & HISTORY -->
         <div class="section">
-            <h3>Palindrome Finder (DNA)</h3>
-            <button id="palindromeBtn">Find Palindromes</button>
+            <h3>Palindrome &amp; Restriction &amp; Masking</h3>
+            <button id="palindromeBtn">Palindromes</button>
             <button onclick="downloadResults('palindromeOutput','palindromes.txt')">Download</button>
             <pre id="palindromeOutput" class="results-box"></pre>
+
+            <button id="restrictionBtn">Restriction Sites</button>
+            <button onclick="downloadResults('restrictionOutput','restriction_sites.txt')">Download</button>
+            <pre id="restrictionOutput" class="results-box"></pre>
+
+            <button id="maskBtn">Mask Regions (e.g., ATG...N's)</button>
+            <button onclick="downloadResults('maskOutput','masked_sequences.fasta')">Download</button>
+            <pre id="maskOutput" class="results-box"></pre>
         </div>
 
         <div class="section">
-            <h3>Restriction Enzyme Sites</h3>
-            <button id="restrictionBtn">Find Sites</button>
-            <button onclick="downloadResults('restrictionOutput','restriction_sites.txt')">Download</button>
-            <pre id="restrictionOutput" class="results-box"></pre>
+            <h3>Multiple Sequence Export</h3>
+            <button id="multiExportBtn">Export Selected Sequences</button>
+            <pre id="multiExportOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Transformation History</h3>
+            <button id="undoTransformBtn">Undo Last</button>
+            <button id="redoTransformBtn">Redo</button>
+            <pre id="transformHistoryOutput" class="results-box"></pre>
         </div>
 
         <div class="section">
             <h3>Download Current FASTA</h3>
-            <button id="downloadFastaBtn">Download FASTA</button>
+            <button id="downloadFastaBtn">Download</button>
         </div>
     </section>
 
-    <!-- TAB 3: VISUALIZATION -->
+    <!-- TAB 3: VISUALIZATIONS -->
     <section id="vizTab" class="tab-content">
-        <h2>Visualization</h2>
+        <h2>Visualizations</h2>
 
         <div class="section">
             <h3>GC Content Chart</h3>
             <canvas id="gcCanvas" width="400" height="200" style="border:1px solid #ccc;"></canvas>
-            <button id="plotGcBtn">Plot GC% per Sequence</button>
+            <button id="plotGcBtn">Plot GC%</button>
         </div>
 
         <div class="section">
-            <h3>Base Composition Pie Chart</h3>
+            <h3>Base Composition Pie</h3>
             <canvas id="basePieCanvas" width="300" height="300" style="border:1px solid #ccc;"></canvas>
-            <button id="plotBasePieBtn">Plot Base Composition</button>
+            <button id="plotBasePieBtn">Plot Pie</button>
         </div>
 
         <div class="section">
-            <h3>Histogram of Sequence Lengths</h3>
+            <h3>Length Histogram</h3>
             <canvas id="lenHistCanvas" width="400" height="200" style="border:1px solid #ccc;"></canvas>
-            <button id="plotLenHistBtn">Plot Length Distribution</button>
+            <button id="plotLenHistBtn">Plot Histogram</button>
         </div>
 
         <div class="section">
-            <h3>ORF Graphical Map</h3>
+            <h3>ORF Map</h3>
             <canvas id="orfMapCanvas" width="600" height="100" style="border:1px solid #ccc;"></canvas>
-            <button id="plotOrfMapBtn">Show ORF Map (for first seq)</button>
+            <button id="plotOrfMapBtn">Show ORF Map</button>
         </div>
-    </section>
-
-    <!-- TAB 4: 3D STRUCTURE -->
-    <section id="structureTab" class="tab-content">
-        <h2>3D Structure Visualization (PDB)</h2>
 
         <div class="section">
-            <p>Upload a PDB file in the <strong>Input &amp; Setup</strong> tab, then click Render here.</p>
-            <button id="renderPdbBtn">Render 3D Structure</button>
-            <div id="pdbViewer" class="viewer-3d"></div>
+            <h3>Nucleotide Heatmap</h3>
+            <canvas id="ntHeatmapCanvas" width="600" height="200" style="border:1px solid #ccc;"></canvas>
+            <button id="ntHeatmapBtn">Create Heatmap</button>
+        </div>
+
+        <div class="section">
+            <h3>Base Pairing Visualization (RNA)</h3>
+            <canvas id="basePairCanvas" width="600" height="200" style="border:1px solid #ccc;"></canvas>
+            <button id="basePairBtn">Show Pairing</button>
         </div>
     </section>
 
-    <!-- TAB 5: UTILITIES -->
+    <!-- TAB 4: COMPARISONS & MAPPING -->
+    <section id="comparisonTab" class="tab-content">
+        <h2>Comparisons &amp; Mapping</h2>
+
+        <div class="section">
+            <h3>Side-by-side Comparison</h3>
+            <button id="compareTwoBtn">Compare First Two Sequences</button>
+            <pre id="compareTwoOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Sequence Diff Viewer</h3>
+            <button id="diffViewerBtn">Diff First Two Sequences</button>
+            <pre id="diffViewerOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Reference Comparison</h3>
+            <p>Compare loaded sequences to a reference (first loaded) and see mismatches.</p>
+            <button id="refCompareBtn">Compare to Reference</button>
+            <pre id="refCompareOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Sequence Alignment Overview</h3>
+            <button id="alignmentOverviewBtn">Alignment Overview</button>
+            <pre id="alignmentOverviewOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Tooltip Annotations</h3>
+            <p>Hover over mismatch positions in comparison. (Simple example in the compareTwoOutput text.)</p>
+        </div>
+    </section>
+
+    <!-- TAB 5: GENE & GENOME TOOLS -->
+    <section id="geneTab" class="tab-content">
+        <h2>Gene &amp; Genome Tools</h2>
+
+        <div class="section">
+            <h3>Gene Mapping</h3>
+            <p>Annotate “GENE” features in sequences if found. (Naive approach, text-based.)</p>
+            <button id="geneMapBtn">Map Genes</button>
+            <pre id="geneMapOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Interactive Gene Finder</h3>
+            <button id="geneFinderBtn">Detect Gene Regions</button>
+            <pre id="geneFinderOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Circular Genome Visualization</h3>
+            <canvas id="circularGenomeCanvas" width="300" height="300" style="border:1px solid #ccc;"></canvas>
+            <button id="circularGenomeBtn">Draw Circular Genome</button>
+        </div>
+
+        <div class="section">
+            <h3>Sequence Rotation for Circular DNA</h3>
+            <label>Rotation (bp): <input type="number" id="circularRotate" value="0"></label>
+            <button id="rotateCircularBtn">Rotate</button>
+            <pre id="circularRotationOutput" class="results-box"></pre>
+        </div>
+    </section>
+
+    <!-- TAB 6: UTILITIES -->
     <section id="utilsTab" class="tab-content">
         <h2>Utilities</h2>
 
         <div class="section">
-            <h3>Remove Duplicate Sequences</h3>
-            <button id="removeDuplicatesBtn">Remove Duplicates</button>
+            <h3>Remove Duplicates</h3>
+            <button id="removeDuplicatesBtn">Remove</button>
             <button onclick="downloadResults('duplicateOutput','duplicates_info.txt')">Download</button>
             <pre id="duplicateOutput" class="results-box"></pre>
         </div>
 
         <div class="section">
             <h3>Rename Headers</h3>
-            <button id="renameHeadersBtn">Naive Rename (Seq1, Seq2...)</button>
+            <button id="renameHeadersBtn">Naive Rename</button>
+        </div>
+
+        <div class="section">
+            <h3>Dark Mode</h3>
+            <button id="darkModeBtn">Toggle</button>
         </div>
 
         <div class="section">
             <h3>Clipboard Copy</h3>
-            <button id="clipboardBtn">Copy Current FASTA to Clipboard</button>
+            <button id="clipboardBtn">Copy FASTA</button>
         </div>
 
         <div class="section">
             <h3>Session Storage</h3>
-            <button id="saveSessionBtn">Save FASTA to Session</button>
-            <button id="loadSessionBtn">Load FASTA from Session</button>
+            <button id="saveSessionBtn">Save to Session</button>
+            <button id="loadSessionBtn">Load from Session</button>
             <div id="sessionMsg" class="warning"></div>
         </div>
 
         <div class="section">
-            <h3>Export CSV / JSON</h3>
+            <h3>Export CSV / JSON / With Stats</h3>
             <button id="exportCsvBtn">Export CSV</button>
             <button id="exportJsonBtn">Export JSON</button>
+            <button id="exportWithStatsBtn">Export Sequences + Stats</button>
+        </div>
+
+        <div class="section">
+            <h3>Sequence Compression (gzip via pako.js)</h3>
+            <button id="compressBtn">Compress Current FASTA</button>
+            <pre id="compressOutput" class="results-box"></pre>
+            <button id="decompressBtn">Decompress Above</button>
+        </div>
+
+        <div class="section">
+            <h3>Sequence Randomization</h3>
+            <button id="randomizeSeqBtn">Randomize</button>
+            <pre id="randomizeOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Real-Time Aggregation</h3>
+            <button id="realtimeAggBtn">Show Real-Time Stats</button>
+            <pre id="realtimeAggOutput" class="results-box"></pre>
+        </div>
+
+        <div class="section">
+            <h3>Interactive Heatmap for Sequence Clusters</h3>
+            <p>Naive “similarity matrix” for all sequences, shown in a color-coded table.</p>
+            <button id="clusterHeatmapBtn">Build Clustering Heatmap</button>
+            <div id="clusterHeatmap" class="results-box"></div>
+        </div>
+
+        <div class="section">
+            <h3>Automated Sequence Cleanup</h3>
+            <p>Removes non-ATGC from DNA, collapses multiple line breaks, etc.</p>
+            <button id="cleanupBtn">Clean Up Sequences</button>
+        </div>
+    </section>
+
+    <!-- TAB 7: 3D STRUCTURE -->
+    <section id="structureTab" class="tab-content">
+        <h2>3D Structure (PDB)</h2>
+        <div class="section">
+            <p>Upload a PDB file in Input &amp; Setup, then click Render.</p>
+            <input type="file" id="pdbFile" accept=".pdb">
+            <button id="loadPdbBtn">Load PDB</button>
+            <button id="renderPdbBtn">Render 3D</button>
+            <div id="pdbViewer" class="viewer-3d"></div>
         </div>
     </section>
 </main>
