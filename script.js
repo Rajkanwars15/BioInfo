@@ -1,569 +1,1138 @@
-/******************************************************************
- * BioInfo - Client-Side Bioinformatics App
- *  - FASTA (DNA/Protein) analysis
- *  - PDB 3D visualization
- *  - Advanced Tools: ORF Finder, K-mer Frequencies, etc.
- *
- * Copyright ©
- *   Rajkanwar Singh (https://github.com/Rajkanwars15)
- ******************************************************************/
+/*************************************************************************
+ * BioInfo+
+ * Updates/Changes:
+ *  1. Dynamic Sequence Editing & Trimming with user-defined start/end,
+ *     plus "Load Modified as New Set".
+ *  2. Download button for each result box.
+ *  3. Loading overlay for file reading/fetching (including chunk-based).
+ *  4. Chunk-based reading approach to handle 50–100MB FASTA files better.
+ *************************************************************************/
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Tab Navigation
+    // TAB NAVIGATION
     document.querySelectorAll('.tablink').forEach(btn => {
         btn.addEventListener('click', switchTab);
     });
-    // Default tab: Home
-    document.getElementById('homeTab').classList.add('active');
+    // Default tab
+    document.getElementById('inputTab').classList.add('active');
 
-    // File loading
-    document.getElementById('loadFastaBtn').addEventListener('click', loadFastaFile);
-    document.getElementById('loadPdbBtn').addEventListener('click', loadPdbFile);
+    // DRAG & DROP
+    setupDragAndDrop();
 
-    // Sequence Analysis
-    document.getElementById('searchBtn').addEventListener('click', searchSequences);
-    document.getElementById('gcBtn').addEventListener('click', calcGCForAll);
-    document.getElementById('revCompBtn').addEventListener('click', reverseComplementAll);
-    document.getElementById('translateBtn').addEventListener('click', translateAll);
+    // HOME / INPUT
+    document.getElementById('loadFastaBtn').addEventListener('click', loadFastaNaive);
+    document.getElementById('chunkFastaBtn').addEventListener('click', loadFastaChunked);
+    document.getElementById('fetchFastaBtn').addEventListener('click', fetchFastaFromUrl);
+    document.getElementById('genRandomFastaBtn').addEventListener('click', generateRandomFasta);
 
-    // 3D Structure
-    document.getElementById('render3DBtn').addEventListener('click', render3DStructure);
+    // ANALYSIS
+    document.getElementById('seqSearchBtn').addEventListener('click', searchSequences);
+    document.getElementById('hdrFilterBtn').addEventListener('click', filterHeaders);
 
-    // More Tools
-    document.getElementById('statsBtn').addEventListener('click', computeSequenceStats);
-    document.getElementById('tmBtn').addEventListener('click', calcMeltingTemp);
-    document.getElementById('motifBtn').addEventListener('click', findMotif);
-    document.getElementById('motifCountBtn').addEventListener('click', countMotif);
+    document.getElementById('revCompBtn').addEventListener('click', computeReverseComplements);
+    document.getElementById('gcBtn').addEventListener('click', computeGC);
+    document.getElementById('lengthBtn').addEventListener('click', showLengths);
+    document.getElementById('charCountBtn').addEventListener('click', countCharacters);
+
+    document.getElementById('motifSearchBtn').addEventListener('click', searchMotifPositions);
+    document.getElementById('motifCountBtn').addEventListener('click', countMotifs);
+
+    document.getElementById('transcribeBtn').addEventListener('click', doTranscription);
+    document.getElementById('translateBtn').addEventListener('click', doTranslation);
+    document.getElementById('codonUsageBtn').addEventListener('click', doCodonUsage);
     document.getElementById('orfBtn').addEventListener('click', findORFs);
-    document.getElementById('kmerBtn').addEventListener('click', computeKmerFrequencies);
+
+    document.getElementById('highlightBtn').addEventListener('click', highlightSubsequence);
+    document.getElementById('statsBtn').addEventListener('click', showStats);
+    document.getElementById('sortBtn').addEventListener('click', sortSequences);
+
+    // Dynamic trimming
+    document.getElementById('trimBtn').addEventListener('click', applyTrimming);
+    document.getElementById('loadTrimmedBtn').addEventListener('click', loadTrimmedAsNewSet);
+
+    document.getElementById('palindromeBtn').addEventListener('click', findPalindromes);
+    document.getElementById('restrictionBtn').addEventListener('click', findRestrictionSites);
+
+    document.getElementById('downloadFastaBtn').addEventListener('click', downloadCurrentFasta);
+
+    // VISUALIZATION
+    document.getElementById('plotGcBtn').addEventListener('click', plotGCContent);
+    document.getElementById('plotBasePieBtn').addEventListener('click', plotBaseComposition);
+    document.getElementById('plotLenHistBtn').addEventListener('click', plotLengthHistogram);
+    document.getElementById('plotOrfMapBtn').addEventListener('click', plotORFMap);
+
+    // STRUCTURE
+    document.getElementById('renderPdbBtn').addEventListener('click', renderPdbStructure);
+
+    // UTILITIES
+    document.getElementById('removeDuplicatesBtn').addEventListener('click', removeDuplicates);
+    document.getElementById('renameHeadersBtn').addEventListener('click', renameHeadersNaive);
+    document.getElementById('clipboardBtn').addEventListener('click', copyFastaToClipboard);
+    document.getElementById('saveSessionBtn').addEventListener('click', saveToSession);
+    document.getElementById('loadSessionBtn').addEventListener('click', loadFromSession);
+    document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
+    document.getElementById('exportJsonBtn').addEventListener('click', exportJSON);
 });
 
 /***************************************************************
- * TAB SWITCH
+ * GLOBAL
+ ***************************************************************/
+let loadedFasta = [];  // array of { header, sequence }
+let loadedPdb = "";    // raw PDB content
+let dragCounter = 0;   // for drag & drop
+
+// For dynamic trimming, store results in a separate array to let user load them
+let trimmedFasta = [];
+
+/***************************************************************
+ * TABS
  ***************************************************************/
 function switchTab(e) {
-    const targetTab = e.target.getAttribute('data-tab');
+    const targetId = e.target.getAttribute('data-tab');
     document.querySelectorAll('.tab-content').forEach(sec => sec.classList.remove('active'));
-    document.getElementById(targetTab).classList.add('active');
+    document.getElementById(targetId).classList.add('active');
 }
 
 /***************************************************************
- * GLOBAL STATE
+ * LOADING OVERLAY
  ***************************************************************/
-let loadedFasta = [];   // array of { header, sequence }
-let loadedPdbText = ""; // PDB data as a string
+function showOverlay(msg="Loading...") {
+    const overlay = document.getElementById('loadingOverlay');
+    overlay.classList.add('show');
+    document.getElementById('loadingMessage').textContent = msg;
+}
+function hideOverlay() {
+    document.getElementById('loadingOverlay').classList.remove('show');
+}
 
 /***************************************************************
- * FILE LOADING
+ * DRAG & DROP
  ***************************************************************/
-function loadFastaFile() {
-    const fileInput = document.getElementById('fastaFile');
-    const msg = document.getElementById('fastaLoadMsg');
-    msg.textContent = '';
+function setupDragAndDrop() {
+    const dropZone = document.getElementById('dropZone');
+    ['dragenter','dragover','dragleave','drop'].forEach(evt => {
+        dropZone.addEventListener(evt, e => e.preventDefault());
+    });
+    dropZone.addEventListener('dragenter', () => {
+        dragCounter++;
+        dropZone.style.background='#e0ffe0';
+    });
+    dropZone.addEventListener('dragleave', () => {
+        dragCounter--;
+        if(dragCounter===0){
+            dropZone.style.background='#fafafa';
+        }
+    });
+    dropZone.addEventListener('drop', e => {
+        dropZone.style.background='#fafafa';
+        dragCounter=0;
+        const files = e.dataTransfer.files;
+        if(files.length){
+            loadFastaFileList(files, false);
+        }
+    });
+}
 
-    const file = fileInput.files[0];
-    if (!file) {
-        msg.textContent = 'No FASTA file selected.';
+/***************************************************************
+ * INPUT & SETUP
+ ***************************************************************/
+/** Naive load - readAsText in one shot */
+function loadFastaNaive() {
+    const fileList = document.getElementById('fastaFile').files;
+    if(!fileList.length){
+        document.getElementById('fastaLoadMsg').textContent='No files selected.';
         return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-        loadedFasta = parseFasta(reader.result);
-        renderFasta(loadedFasta);
-        msg.textContent = 'FASTA loaded successfully!';
-    };
-    reader.readAsText(file);
+    loadFastaFileList(fileList, false);
 }
 
-function loadPdbFile() {
-    const fileInput = document.getElementById('pdbFile');
-    const msg = document.getElementById('pdbLoadMsg');
-    msg.textContent = '';
-
-    const file = fileInput.files[0];
-    if (!file) {
-        msg.textContent = 'No PDB file selected.';
+/** Chunk-based load for large files (50-100MB) */
+function loadFastaChunked() {
+    const fileList = document.getElementById('fastaFile').files;
+    if(!fileList.length){
+        document.getElementById('fastaLoadMsg').textContent='No files selected.';
         return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-        loadedPdbText = reader.result;
-        msg.textContent = 'PDB loaded successfully!';
-    };
-    reader.readAsText(file);
+    loadFastaFileList(fileList, true);
 }
 
-/***************************************************************
- * FASTA PARSING & RENDERING
- ***************************************************************/
-function parseFasta(text) {
-    const lines = text.split(/\r?\n/);
-    let entries = [];
-    let header = null;
-    let seqLines = [];
+function loadFastaFileList(fileList, chunked=false) {
+    showOverlay('Reading FASTA...');
+    let msg = document.getElementById('fastaLoadMsg');
+    msg.textContent='Loading...';
 
-    for (let line of lines) {
-        if (line.startsWith('>')) {
-            if (header) {
-                entries.push({ header, sequence: seqLines.join('') });
+    let totalFiles = fileList.length;
+    let filesRead=0;
+
+    Array.from(fileList).forEach(file => {
+        if(chunked) {
+            readFastaInChunks(file, (err,text) => {
+                if(err){
+                    msg.textContent= `Error: ${err.message}`;
+                    hideOverlay();
+                    return;
+                }
+                parseFastaText(text);
+                filesRead++;
+                if(filesRead===totalFiles){
+                    msg.textContent='All files loaded.';
+                    renderFasta(loadedFasta);
+                    hideOverlay();
+                }
+            });
+        } else {
+            // naive
+            let reader=new FileReader();
+            reader.onload=()=>{
+                parseFastaText(reader.result);
+                filesRead++;
+                if(filesRead===totalFiles){
+                    msg.textContent='All files loaded.';
+                    renderFasta(loadedFasta);
+                    hideOverlay();
+                }
+            };
+            reader.onerror=()=>{
+                msg.textContent=`Error reading ${file.name}`;
+                hideOverlay();
+            };
+            reader.readAsText(file);
+        }
+    });
+}
+
+/** Read a large file in chunks (1 MB each, for example) */
+function readFastaInChunks(file, callback) {
+    const chunkSize = 1*1024*1024; // 1 MB
+    let offset=0;
+    let fileText='';
+
+    const fileSize = file.size;
+
+    function readNextChunk() {
+        if(offset>=fileSize){
+            callback(null, fileText);
+            return;
+        }
+        const slice = file.slice(offset, offset+chunkSize);
+        let fr=new FileReader();
+        fr.onload = e => {
+            let chunkText = e.target.result;
+            fileText += chunkText;
+            offset += chunkSize;
+            showOverlay(`Reading chunks... ${Math.min(100, ((offset/fileSize)*100).toFixed(1))}%`);
+            readNextChunk();
+        };
+        fr.onerror= e=> callback(e,null);
+        fr.readAsText(slice);
+    }
+    readNextChunk();
+}
+
+function parseFastaText(text) {
+    let lines = text.split(/\r?\n/);
+    let header=null;
+    let seqLines=[];
+    for(let line of lines){
+        if(line.startsWith('>')){
+            if(header){
+                loadedFasta.push({header, sequence: seqLines.join('')});
             }
-            header = line.substring(1).trim();
-            seqLines = [];
-        } else if (line.trim()) {
+            header=line.substring(1).trim();
+            seqLines=[];
+        } else if(line.trim()){
             seqLines.push(line.trim());
         }
     }
-    if (header) {
-        entries.push({ header, sequence: seqLines.join('') });
+    if(header){
+        loadedFasta.push({header, sequence: seqLines.join('')});
     }
-    return entries;
 }
 
-function renderFasta(fastaArray, highlight='') {
-    const displayDiv = document.getElementById('fastaDisplay');
-    displayDiv.innerHTML = '';
-
-    if (!fastaArray.length) {
-        displayDiv.textContent = 'No FASTA data loaded.';
+function fetchFastaFromUrl() {
+    const url=document.getElementById('fastaUrl').value.trim();
+    const msg=document.getElementById('fastaFetchMsg');
+    if(!url){
+        msg.textContent='No URL provided.';
         return;
     }
+    showOverlay('Fetching...');
+    msg.textContent='Fetching...';
 
-    fastaArray.forEach(entry => {
-        const headerDiv = document.createElement('div');
-        headerDiv.className = 'fasta-header';
-        headerDiv.textContent = '>' + entry.header;
+    fetch(url)
+        .then(res=>{
+            if(!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.text();
+        })
+        .then(txt=>{
+            parseFastaText(txt);
+            renderFasta(loadedFasta);
+            msg.textContent='Fetched & loaded FASTA!';
+            hideOverlay();
+        })
+        .catch(err=>{
+            msg.textContent=`Error: ${err.message}`;
+            hideOverlay();
+        });
+}
 
-        const seqDiv = document.createElement('div');
-        seqDiv.className = 'fasta-sequence';
-        if (highlight) {
-            seqDiv.innerHTML = highlightSequence(entry.sequence, highlight);
-        } else {
-            seqDiv.textContent = entry.sequence;
+function generateRandomFasta() {
+    const count=parseInt(document.getElementById('randCount').value)||2;
+    const length=parseInt(document.getElementById('randLength').value)||50;
+    const bases=['A','T','G','C'];
+
+    for(let i=0;i<count;i++){
+        let seq='';
+        for(let j=0;j<length;j++){
+            seq += bases[Math.floor(Math.random()*4)];
         }
-        displayDiv.appendChild(headerDiv);
-        displayDiv.appendChild(seqDiv);
+        loadedFasta.push({header:`Random_${i+1}`, sequence:seq});
+    }
+    document.getElementById('randomFastaMsg').textContent='Random FASTA generated.';
+    renderFasta(loadedFasta);
+}
+
+/***************************************************************
+ * RENDER / DISPLAY
+ ***************************************************************/
+function renderFasta(fasta) {
+    const disp=document.getElementById('fastaDisplay');
+    disp.innerHTML='';
+    if(!fasta.length){
+        disp.textContent='No sequences loaded.';
+        return;
+    }
+    fasta.forEach(e=>{
+        let hdr=document.createElement('div');
+        hdr.className='fasta-header';
+        hdr.textContent='>'+e.header;
+
+        let seq=document.createElement('div');
+        seq.className='fasta-sequence';
+        seq.textContent=e.sequence;
+
+        disp.appendChild(hdr);
+        disp.appendChild(seq);
     });
 }
 
 /***************************************************************
- * SEARCH / HIGHLIGHT
+ * SEARCH & FILTER
  ***************************************************************/
 function searchSequences() {
-    const query = document.getElementById('searchQuery').value.trim();
-    renderFasta(loadedFasta, query);
+    const query=document.getElementById('seqSearch').value.trim().toLowerCase();
+    if(!query) return;
+    const filtered=loadedFasta.filter(e=>
+        e.header.toLowerCase().includes(query) || e.sequence.toLowerCase().includes(query)
+    );
+    renderFasta(filtered);
 }
 
-function highlightSequence(sequence, query) {
-    const re = new RegExp(query, 'gi');
-    return sequence.replace(re, match => `<span class="highlight">${match}</span>`);
+function filterHeaders() {
+    const kw=document.getElementById('hdrFilter').value.trim().toLowerCase();
+    if(!kw) {
+        renderFasta(loadedFasta);
+        return;
+    }
+    const filtered=loadedFasta.filter(e=> e.header.toLowerCase().includes(kw));
+    renderFasta(filtered);
 }
 
 /***************************************************************
- * GC CONTENT
+ * BASIC ANALYSES
  ***************************************************************/
-function calcGCForAll() {
-    const box = document.getElementById('gcResults');
-    box.textContent = '';
-
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
+function computeReverseComplements() {
+    const out=document.getElementById('revCompOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
         return;
     }
-
-    let output = '';
-    loadedFasta.forEach(entry => {
-        const gcVal = gcContent(entry.sequence);
-        output += `>${entry.header}\nGC%: ${gcVal.toFixed(2)}%\n\n`;
+    let txt='';
+    loadedFasta.forEach(e=>{
+        let rc=reverseComplement(e.sequence);
+        txt+= `>${e.header}\n${rc}\n\n`;
     });
-    box.textContent = output.trim();
+    out.textContent=txt.trim();
+}
+function reverseComplement(seq){
+    const map={A:'T',T:'A',G:'C',C:'G',a:'t',t:'a',g:'c',c:'g',N:'N',n:'n'};
+    return seq.split('').reverse().map(b=> map[b]||b).join('');
 }
 
-function gcContent(seq) {
-    const s = seq.toUpperCase();
-    const matches = s.match(/[GC]/g);
-    if (!matches) return 0;
-    return (matches.length / s.length) * 100;
+function computeGC() {
+    const out=document.getElementById('gcOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let txt='';
+    loadedFasta.forEach(e=>{
+        let val=gcPercent(e.sequence).toFixed(2);
+        txt+= `>${e.header}\nGC%: ${val}%\n\n`;
+    });
+    out.textContent=txt.trim();
+}
+function gcPercent(seq){
+    let s=seq.toUpperCase();
+    let m=s.match(/[GC]/g);
+    if(!m) return 0;
+    return (m.length/s.length)*100;
+}
+
+function showLengths() {
+    const out=document.getElementById('lengthOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let txt='';
+    loadedFasta.forEach(e=>{
+        txt+= `>${e.header}\nLength: ${e.sequence.length}\n\n`;
+    });
+    out.textContent=txt.trim();
+}
+
+function countCharacters() {
+    const out=document.getElementById('charCountOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let txt='';
+    loadedFasta.forEach(e=>{
+        let counts={};
+        for(let c of e.sequence){
+            let up=c.toUpperCase();
+            counts[up]=(counts[up]||0)+1;
+        }
+        txt+= `>${e.header}\n`;
+        Object.keys(counts).sort().forEach(k=>{
+            txt+= `  ${k}: ${counts[k]}\n`;
+        });
+        txt+='\n';
+    });
+    out.textContent=txt.trim();
 }
 
 /***************************************************************
- * REVERSE COMPLEMENT
+ * MOTIF SEARCH & COUNTER
  ***************************************************************/
-function reverseComplementAll() {
-    const box = document.getElementById('revCompResults');
-    box.textContent = '';
-
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
+function searchMotifPositions() {
+    const pattern=document.getElementById('motifRegex').value;
+    const out=document.getElementById('motifOutput');
+    out.textContent='';
+    if(!pattern){
+        out.textContent='No motif regex provided.';
+        return;
+    }
+    let re;
+    try{
+        re=new RegExp(pattern,'gi');
+    }catch(err){
+        out.textContent='Invalid regex: '+err.message;
+        return;
+    }
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
         return;
     }
 
-    let output = '';
-    loadedFasta.forEach(entry => {
-        const rc = revComp(entry.sequence);
-        output += `>${entry.header}\n${rc}\n\n`;
+    let txt='';
+    loadedFasta.forEach(e=>{
+        txt+= `>${e.header}\n`;
+        let seq=e.sequence;
+        re.lastIndex=0;
+        let match;
+        let count=0;
+        while((match=re.exec(seq))!==null){
+            count++;
+            let pos=match.index+1;
+            txt+= `  Found #${count} at pos ${pos}: ${match[0]}\n`;
+        }
+        if(count===0) txt+='  No match found.\n';
+        txt+='\n';
     });
-    box.textContent = output.trim();
+    out.textContent=txt.trim();
 }
 
-function revComp(seq) {
-    const map = {
-        A:'T', T:'A', G:'C', C:'G',
-        a:'t', t:'a', g:'c', c:'g',
-        N:'N', n:'n'
-    };
-    return seq.split('')
-        .reverse()
-        .map(base => map[base] || base)
-        .join('');
+function countMotifs() {
+    const pattern=document.getElementById('motifRegex').value;
+    const out=document.getElementById('motifOutput');
+    out.textContent='';
+    if(!pattern){
+        out.textContent='No motif regex provided.';
+        return;
+    }
+    let re;
+    try{
+        re=new RegExp(pattern,'gi');
+    }catch(err){
+        out.textContent='Invalid regex: '+err.message;
+        return;
+    }
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+
+    let txt='';
+    loadedFasta.forEach(e=>{
+        let seq=e.sequence;
+        re.lastIndex=0;
+        let count=0;
+        while(re.exec(seq)!==null){
+            count++;
+        }
+        txt+= `>${e.header}\n  Total occurrences of "${pattern}": ${count}\n\n`;
+    });
+    out.textContent=txt.trim();
 }
 
 /***************************************************************
- * TRANSLATION (DNA → Protein)
+ * TRANSCRIPTION / TRANSLATION
  ***************************************************************/
-function translateAll() {
-    const box = document.getElementById('translateResults');
-    box.textContent = '';
-
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
+function doTranscription() {
+    const out=document.getElementById('transcribeOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
         return;
     }
-
-    let output = '';
-    loadedFasta.forEach(entry => {
-        const protein = translateDNA(entry.sequence);
-        output += `>${entry.header}\n${protein}\n\n`;
+    let txt='';
+    loadedFasta.forEach(e=>{
+        let rna=e.sequence.toUpperCase().replace(/T/g,'U');
+        txt+= `>${e.header}\n${rna}\n\n`;
     });
-    box.textContent = output.trim();
+    out.textContent=txt.trim();
 }
 
-const codonTable = {
-    'TTT':'F','TTC':'F','TTA':'L','TTG':'L',
-    'TCT':'S','TCC':'S','TCA':'S','TCG':'S',
-    'TAT':'Y','TAC':'Y','TAA':'*','TAG':'*',
-    'TGT':'C','TGC':'C','TGA':'*','TGG':'W',
-    'CTT':'L','CTC':'L','CTA':'L','CTG':'L',
-    'CCT':'P','CCC':'P','CCA':'P','CCG':'P',
-    'CAT':'H','CAC':'H','CAA':'Q','CAG':'Q',
-    'CGT':'R','CGC':'R','CGA':'R','CGG':'R',
-    'ATT':'I','ATC':'I','ATA':'I','ATG':'M',
-    'ACT':'T','ACC':'T','ACA':'T','ACG':'T',
-    'AAT':'N','AAC':'N','AAA':'K','AAG':'K',
-    'AGT':'S','AGC':'S','AGA':'R','AGG':'R',
-    'GTT':'V','GTC':'V','GTA':'V','GTG':'V',
-    'GCT':'A','GCC':'A','GCA':'A','GCG':'A',
-    'GAT':'D','GAC':'D','GAA':'E','GAG':'E',
-    'GGT':'G','GGC':'G','GGA':'G','GGG':'G'
+function doTranslation() {
+    const out=document.getElementById('translateOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let txt='';
+    loadedFasta.forEach(e=>{
+        let prot=rnaToProtein(e.sequence);
+        txt+= `>${e.header}\n${prot}\n\n`;
+    });
+    out.textContent=txt.trim();
+}
+
+const rnaCodons={
+    UUU:'F',UUC:'F',UUA:'L',UUG:'L',UCU:'S',UCC:'S',UCA:'S',UCG:'S',
+    UAU:'Y',UAC:'Y',UAA:'*',UAG:'*',UGU:'C',UGC:'C',UGA:'*',UGG:'W',
+    CUU:'L',CUC:'L',CUA:'L',CUG:'L',CCU:'P',CCC:'P',CCA:'P',CCG:'P',
+    CAU:'H',CAC:'H',CAA:'Q',CAG:'Q',CGU:'R',CGC:'R',CGA:'R',CGG:'R',
+    AUU:'I',AUC:'I',AUA:'I',AUG:'M',ACU:'T',ACC:'T',ACA:'T',ACG:'T',
+    AAU:'N',AAC:'N',AAA:'K',AAG:'K',AGU:'S',AGC:'S',AGA:'R',AGG:'R',
+    GUU:'V',GUC:'V',GUA:'V',GUG:'V',GCU:'A',GCC:'A',GCA:'A',GCG:'A',
+    GAU:'D',GAC:'D',GAA:'E',GAG:'E',GGU:'G',GGC:'G',GGA:'G',GGG:'G'
 };
-
-function translateDNA(seq) {
-    const s = seq.toUpperCase();
-    let protein = [];
-    for (let i = 0; i < s.length; i += 3) {
-        const codon = s.slice(i, i + 3);
-        if (codon.length < 3) break;
-        protein.push(codonTable[codon] || 'X');
+function rnaToProtein(seq){
+    let rna=seq.toUpperCase().replace(/T/g,'U');
+    let protein=[];
+    for(let i=0;i<rna.length;i+=3){
+        if(i+3>rna.length) break;
+        let codon=rna.slice(i,i+3);
+        protein.push(rnaCodons[codon]||'X');
     }
     return protein.join('');
 }
 
-/***************************************************************
- * 3D STRUCTURE (PDB)
- ***************************************************************/
-function render3DStructure() {
-    if (!loadedPdbText) {
-        alert('No PDB file loaded yet.');
+/** Codon Usage (DNA) */
+function doCodonUsage() {
+    const out=document.getElementById('codonUsageOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
         return;
     }
-    const viewerDiv = document.getElementById('viewer3D');
-    viewerDiv.innerHTML = '';
+    let codons={};
+    let total=0;
+    loadedFasta.forEach(e=>{
+        let seq=e.sequence.toUpperCase();
+        for(let i=0;i<seq.length;i+=3){
+            if(i+3>seq.length) break;
+            let c=seq.slice(i,i+3);
+            codons[c]=(codons[c]||0)+1;
+            total++;
+        }
+    });
+    let txt='Codon Usage:\n';
+    Object.keys(codons).sort().forEach(c=>{
+        let freq=((codons[c]/total)*100).toFixed(2);
+        txt+= `  ${c}: ${codons[c]} times (${freq}%)\n`;
+    });
+    out.textContent=txt.trim();
+}
 
-    const viewer = $3Dmol.createViewer(viewerDiv, { backgroundColor: 'white' });
-    viewer.addModel(loadedPdbText, 'pdb');
-    viewer.setStyle({}, { cartoon: { color: 'spectrum' } });
+/***************************************************************
+ * ORF Finder
+ ***************************************************************/
+function findORFs() {
+    const out=document.getElementById('orfOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let txt='';
+    const start='ATG';
+    const stops=['TAA','TAG','TGA'];
+    loadedFasta.forEach(e=>{
+        let seq=e.sequence.toUpperCase();
+        txt+= `>${e.header}\n`;
+        let foundAny=false;
+        for(let frame=0;frame<3;frame++){
+            let i=frame;
+            while(i<seq.length-2){
+                let c=seq.slice(i,i+3);
+                if(c===start){
+                    // find stop
+                    let j=i+3;
+                    let stopPos=-1;
+                    while(j<seq.length-2){
+                        let c2=seq.slice(j,j+3);
+                        if(stops.includes(c2)){
+                            stopPos=j;
+                            break;
+                        }
+                        j+=3;
+                    }
+                    if(stopPos!==-1){
+                        foundAny=true;
+                        let orfLen=(stopPos+3)-i;
+                        txt+= `  Frame ${frame+1}, start=${i+1}, stop=${stopPos+3}, length=${orfLen}\n`;
+                        i=stopPos+3;
+                    } else {
+                        break;
+                    }
+                } else {
+                    i+=3;
+                }
+            }
+        }
+        if(!foundAny) txt+='  No ORFs found.\n';
+        txt+='\n';
+    });
+    out.textContent=txt.trim();
+}
+
+/***************************************************************
+ * SUBSEQ HIGHLIGHT
+ ***************************************************************/
+function highlightSubsequence() {
+    const query=document.getElementById('highlightSubseq').value.trim();
+    if(!query){
+        renderFasta(loadedFasta);
+        return;
+    }
+    const disp=document.getElementById('fastaDisplay');
+    disp.innerHTML='';
+    loadedFasta.forEach(e=>{
+        let hdr=document.createElement('div');
+        hdr.className='fasta-header';
+        hdr.textContent='>'+e.header;
+
+        let seq=document.createElement('div');
+        seq.className='fasta-sequence';
+        seq.innerHTML=highlight(e.sequence, query);
+
+        disp.appendChild(hdr);
+        disp.appendChild(seq);
+    });
+}
+function highlight(seq, q){
+    let re=new RegExp(q,'gi');
+    return seq.replace(re,m=>`<span class="highlight">${m}</span>`);
+}
+
+/***************************************************************
+ * STATS & SORT
+ ***************************************************************/
+function showStats() {
+    const out=document.getElementById('statsOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let total=loadedFasta.length;
+    let totalLen=0;
+    let totalGC=0;
+
+    loadedFasta.forEach(e=>{
+        let seq=e.sequence;
+        totalLen+=seq.length;
+        let m=seq.toUpperCase().match(/[GC]/g);
+        if(m) totalGC+=m.length;
+    });
+    let avg=(totalLen/total).toFixed(2);
+    let overallGC=totalLen>0 ? ((totalGC/totalLen)*100).toFixed(2):0;
+    out.textContent=`Total sequences: ${total}\nAverage length: ${avg}\nOverall GC%: ${overallGC}`;
+}
+
+function sortSequences() {
+    const mode=document.getElementById('sortMode').value;
+    if(mode==='length'){
+        loadedFasta.sort((a,b)=>a.sequence.length - b.sequence.length);
+    } else if(mode==='gc'){
+        loadedFasta.sort((a,b)=>gcPercent(a.sequence) - gcPercent(b.sequence));
+    } else if(mode==='header'){
+        loadedFasta.sort((a,b)=>a.header.localeCompare(b.header));
+    }
+    renderFasta(loadedFasta);
+}
+
+/***************************************************************
+ * DYNAMIC TRIMMING
+ ***************************************************************/
+function applyTrimming() {
+    const out=document.getElementById('editOutput');
+    out.textContent='';
+
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let start=parseInt(document.getElementById('trimStart').value)||1;
+    let end=parseInt(document.getElementById('trimEnd').value);
+
+    trimmedFasta=[];
+    loadedFasta.forEach(e=>{
+        let seq=e.sequence;
+        let length=seq.length;
+
+        let actualStart=Math.max(1, start); // 1-based
+        let actualEnd=(end && end<length) ? end : length;
+
+        // convert to 0-based
+        let sliceStart=actualStart-1;
+        let sliceEnd=actualEnd;
+
+        if(sliceStart>=sliceEnd){
+            // if user gave invalid or 1>2 scenario
+            trimmedFasta.push({header:e.header, sequence:''});
+        } else {
+            let newSeq=seq.slice(sliceStart, sliceEnd);
+            trimmedFasta.push({header:e.header, sequence:newSeq});
+        }
+    });
+
+    // Just preview them
+    let txt='';
+    trimmedFasta.forEach(e=>{
+        txt+= `>${e.header}\n${e.sequence}\n\n`;
+    });
+    out.textContent=txt.trim();
+}
+
+function loadTrimmedAsNewSet() {
+    if(!trimmedFasta.length){
+        document.getElementById('editOutput').textContent='No trimmed data to load.';
+        return;
+    }
+    loadedFasta=JSON.parse(JSON.stringify(trimmedFasta)); // clone
+    renderFasta(loadedFasta);
+    document.getElementById('editOutput').textContent+=' \n\nTrimmed set is now loaded as the main dataset.';
+}
+
+/***************************************************************
+ * PALINDROME, RESTRICTION
+ ***************************************************************/
+function findPalindromes() {
+    const out=document.getElementById('palindromeOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let txt='';
+    loadedFasta.forEach(e=>{
+        txt+=`>${e.header}\n`;
+        let seq=e.sequence.toUpperCase();
+        let count=0;
+        for(let start=0;start<seq.length;start++){
+            for(let end=start+3; end<seq.length;end++){
+                let fragment=seq.slice(start,end+1);
+                if(isPalindrome(fragment)){
+                    count++;
+                    txt+=`  Palindrome #${count} at [${start+1}-${end+1}]: ${fragment}\n`;
+                }
+            }
+        }
+        if(count===0) txt+='  No palindromes (≥4bp) found.\n';
+        txt+='\n';
+    });
+    out.textContent=txt.trim();
+}
+function isPalindrome(str){
+    if(str.length<4) return false;
+    return str===reverseComplement(str);
+}
+
+function findRestrictionSites() {
+    const out=document.getElementById('restrictionOutput');
+    out.textContent='';
+
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
+        return;
+    }
+    let dictionary={
+        EcoRI:'GAATTC',
+        HindIII:'AAGCTT',
+        BamHI:'GGATCC'
+    };
+    let txt='';
+    loadedFasta.forEach(e=>{
+        let seq=e.sequence.toUpperCase();
+        txt+=`>${e.header}\n`;
+        let foundAny=false;
+        Object.keys(dictionary).forEach(enzyme=>{
+            let site=dictionary[enzyme];
+            let idx=seq.indexOf(site);
+            if(idx>=0){
+                foundAny=true;
+                let positions=[];
+                while(idx>=0){
+                    positions.push(idx+1);
+                    idx=seq.indexOf(site, idx+1);
+                }
+                txt+=`  ${enzyme} (${site}) at positions: ${positions.join(', ')}\n`;
+            }
+        });
+        if(!foundAny) txt+='  No known sites found.\n';
+        txt+='\n';
+    });
+    out.textContent=txt.trim();
+}
+
+/***************************************************************
+ * DOWNLOAD FASTA
+ ***************************************************************/
+function downloadCurrentFasta() {
+    if(!loadedFasta.length){
+        alert('No sequences to download.');
+        return;
+    }
+    let text='';
+    loadedFasta.forEach(e=>{
+        text+= `>${e.header}\n${e.sequence}\n`;
+    });
+    downloadText(text,'current_sequences.fasta');
+}
+
+/***************************************************************
+ * VISUALIZATION (Canvas-based)
+ ***************************************************************/
+function plotGCContent() {
+    if(!loadedFasta.length){
+        alert('No sequences loaded.');
+        return;
+    }
+    const canvas=document.getElementById('gcCanvas');
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    let barWidth=Math.floor(canvas.width/loadedFasta.length);
+    let maxHeight=canvas.height-20;
+
+    loadedFasta.forEach((entry,i)=>{
+        const gc=gcPercent(entry.sequence);
+        const barHeight=(gc/100)*maxHeight;
+        const x=i*barWidth;
+        const y=canvas.height-barHeight;
+
+        ctx.fillStyle='#4CAF50';
+        ctx.fillRect(x,y,barWidth-2,barHeight);
+
+        ctx.fillStyle='#000';
+        ctx.font='10px Arial';
+        ctx.fillText(gc.toFixed(1), x+2,y-2);
+    });
+}
+
+function plotBaseComposition() {
+    if(!loadedFasta.length){
+        alert('No sequences loaded.');
+        return;
+    }
+    const seq=loadedFasta[0].sequence.toUpperCase();
+    const counts={A:0,T:0,G:0,C:0};
+    for(let c of seq){
+        if(counts[c]!==undefined) counts[c]++;
+    }
+    const total=seq.length||1;
+
+    const canvas=document.getElementById('basePieCanvas');
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const slices=[
+        {base:'A', color:'#ff6666'},
+        {base:'T', color:'#6666ff'},
+        {base:'G', color:'#66ff66'},
+        {base:'C', color:'#ffff66'}
+    ];
+    let startAngle=0;
+    slices.forEach(s=>{
+        const fraction=counts[s.base]/total;
+        const angle=fraction*2*Math.PI;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width/2,canvas.height/2);
+        ctx.arc(canvas.width/2,canvas.height/2,100,startAngle,startAngle+angle);
+        ctx.fillStyle=s.color;
+        ctx.fill();
+        // label
+        const mid=startAngle+angle/2;
+        const lx=canvas.width/2 + 70*Math.cos(mid);
+        const ly=canvas.height/2 + 70*Math.sin(mid);
+        ctx.fillStyle='#000';
+        ctx.font='10px Arial';
+        ctx.fillText(`${s.base} (${counts[s.base]})`, lx-10,ly);
+        startAngle+=angle;
+    });
+}
+
+function plotLengthHistogram() {
+    if(!loadedFasta.length){
+        alert('No sequences loaded.');
+        return;
+    }
+    const lengths=loadedFasta.map(e=>e.sequence.length);
+    const maxLen=Math.max(...lengths);
+    const binCount=10;
+    const binSize=Math.ceil(maxLen/binCount);
+    let bins=new Array(binCount).fill(0);
+
+    lengths.forEach(l=>{
+        let idx=Math.min(Math.floor(l/binSize),binCount-1);
+        bins[idx]++;
+    });
+
+    const canvas=document.getElementById('lenHistCanvas');
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    let barWidth=Math.floor(canvas.width/binCount);
+    let maxBin=Math.max(...bins);
+    let scale=(canvas.height-20)/maxBin;
+
+    bins.forEach((count,i)=>{
+        let x=i*barWidth;
+        let barH=count*scale;
+        ctx.fillStyle='#4CAF50';
+        ctx.fillRect(x,canvas.height-barH,barWidth-2,barH);
+
+        ctx.fillStyle='#000';
+        ctx.font='10px Arial';
+        ctx.fillText(`[${i*binSize}-${(i+1)*binSize-1}]`, x+2, canvas.height-barH-2);
+        ctx.fillText(count, x+2, canvas.height-2);
+    });
+}
+
+function plotORFMap() {
+    if(!loadedFasta.length){
+        alert('No sequences loaded.');
+        return;
+    }
+    let seq=loadedFasta[0].sequence.toUpperCase();
+    const canvas=document.getElementById('orfMapCanvas');
+    const ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    let length=seq.length;
+    let scale=canvas.width/length;
+
+    // find orfs
+    let starts=[];
+    let stops=[];
+    const start='ATG';
+    const ends=['TAA','TAG','TGA'];
+    for(let frame=0; frame<3; frame++){
+        let i=frame;
+        while(i<length-2){
+            let c=seq.slice(i,i+3);
+            if(c===start){
+                let j=i+3;
+                let stopPos=-1;
+                while(j<length-2){
+                    let c2=seq.slice(j,j+3);
+                    if(ends.includes(c2)){
+                        stopPos=j+3;
+                        break;
+                    }
+                    j+=3;
+                }
+                if(stopPos>0){
+                    starts.push(i);
+                    stops.push(stopPos);
+                    i=stopPos;
+                } else {
+                    break;
+                }
+            } else {
+                i+=3;
+            }
+        }
+    }
+    // main line
+    ctx.strokeStyle='#000';
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height/2);
+    ctx.lineTo(canvas.width, canvas.height/2);
+    ctx.stroke();
+
+    ctx.fillStyle='rgba(255,0,0,0.5)';
+    for(let i=0;i<starts.length;i++){
+        let st=starts[i];
+        let en=stops[i];
+        let x=st*scale;
+        let w=(en-st)*scale;
+        ctx.fillRect(x, canvas.height/2-10, w, 20);
+    }
+}
+
+/***************************************************************
+ * 3D STRUCTURE
+ ***************************************************************/
+function renderPdbStructure() {
+    if(!loadedPdb){
+        alert('No PDB loaded yet.');
+        return;
+    }
+    const div=document.getElementById('pdbViewer');
+    div.innerHTML='';
+    const viewer=$3Dmol.createViewer(div,{backgroundColor:'white'});
+    viewer.addModel(loadedPdb,'pdb');
+    viewer.setStyle({}, {cartoon:{color:'spectrum'}});
     viewer.zoomTo();
     viewer.render();
 }
 
 /***************************************************************
- * SEQUENCE STATISTICS
+ * UTILITIES
  ***************************************************************/
-function computeSequenceStats() {
-    const box = document.getElementById('statsResults');
-    box.textContent = '';
-
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
+function removeDuplicates() {
+    const out=document.getElementById('duplicateOutput');
+    out.textContent='';
+    if(!loadedFasta.length){
+        out.textContent='No sequences loaded.';
         return;
     }
-
-    let output = '';
-    for (let e of loadedFasta) {
-        output += `>${e.header}\n`;
-        const stats = getSequenceStats(e.sequence);
-        output += `  Length: ${stats.length}\n`;
-        // Composition
-        const letters = Object.keys(stats.composition).sort();
-        letters.forEach(l => {
-            output += `  ${l}: ${stats.composition[l]}\n`;
-        });
-        output += `  Type: ${stats.type}\n\n`;
-    }
-    box.textContent = output.trim();
-}
-
-function getSequenceStats(seq) {
-    const length = seq.length;
-    const composition = {};
-    for (let c of seq) {
-        const upper = c.toUpperCase();
-        composition[upper] = (composition[upper] || 0) + 1;
-    }
-    // naive detection
-    const dnaChars = ['A','T','G','C','N'];
-    let dnaCount = 0, total = 0;
-    for (let [base, count] of Object.entries(composition)) {
-        total += count;
-        if (dnaChars.includes(base)) {
-            dnaCount += count;
-        }
-    }
-    const ratio = dnaCount / total;
-    let type = (ratio >= 0.9) ? 'DNA' : 'Protein (likely)';
-
-    return { length, composition, type };
-}
-
-/***************************************************************
- * MELTING TEMP (Wallace Rule)
- ***************************************************************/
-function calcMeltingTemp() {
-    const box = document.getElementById('tmResults');
-    box.textContent = '';
-
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
-        return;
-    }
-
-    let output = '';
-    for (let e of loadedFasta) {
-        output += `>${e.header}\n`;
-        const seq = e.sequence.toUpperCase();
-        const len = seq.length;
-        if (len <= 14) {
-            const AorT = (seq.match(/[AT]/g) || []).length;
-            const GorC = (seq.match(/[GC]/g) || []).length;
-            const Tm = 2 * AorT + 4 * GorC;
-            output += `  Tm (short DNA): ~${Tm}°C\n\n`;
+    let seen=new Set();
+    let unique=[];
+    let removed=0;
+    loadedFasta.forEach(e=>{
+        let key=e.sequence+'|'+e.header;
+        if(!seen.has(key)){
+            seen.add(key);
+            unique.push(e);
         } else {
-            output += `  Length > 14 nt, Wallace rule not applied.\n\n`;
+            removed++;
         }
-    }
-    box.textContent = output.trim();
+    });
+    loadedFasta=unique;
+    renderFasta(loadedFasta);
+    out.textContent=`Removed ${removed} duplicates. ${loadedFasta.length} remain.`;
 }
 
-/***************************************************************
- * MOTIF FINDER (Lists positions)
- ***************************************************************/
-function findMotif() {
-    const pattern = document.getElementById('motifPattern').value.trim();
-    const box = document.getElementById('motifResults');
-    box.textContent = '';
-
-    if (!pattern) {
-        box.textContent = 'No motif/regex provided.';
-        return;
-    }
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
-        return;
-    }
-
-    let output = '';
-    let re;
-    try {
-        re = new RegExp(pattern, 'gi');
-    } catch (err) {
-        box.textContent = 'Invalid regex pattern.';
-        return;
-    }
-
-    for (let e of loadedFasta) {
-        output += `>${e.header}\n`;
-        let seq = e.sequence;
-        re.lastIndex = 0; // reset
-        let match;
-        let count = 0;
-        while ((match = re.exec(seq)) !== null) {
-            count++;
-            const pos = match.index + 1; // 1-based
-            output += `  Match #${count} at position ${pos}: ${match[0]}\n`;
-        }
-        if (count === 0) {
-            output += '  No match found.\n';
-        }
-        output += '\n';
-    }
-    box.textContent = output.trim();
+function renameHeadersNaive() {
+    loadedFasta.forEach((e,i)=>{
+        e.header=`Seq${i+1}`;
+    });
+    renderFasta(loadedFasta);
 }
 
-/***************************************************************
- * MOTIF COUNTER (Only counts total occurrences)
- ***************************************************************/
-function countMotif() {
-    const pattern = document.getElementById('motifCountPattern').value.trim();
-    const box = document.getElementById('motifCountResults');
-    box.textContent = '';
-
-    if (!pattern) {
-        box.textContent = 'No motif/regex provided.';
-        return;
-    }
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
-        return;
-    }
-
-    let output = '';
-    let re;
-    try {
-        re = new RegExp(pattern, 'gi');
-    } catch (err) {
-        box.textContent = 'Invalid regex pattern.';
-        return;
-    }
-
-    for (let e of loadedFasta) {
-        let seq = e.sequence;
-        re.lastIndex = 0;
-        let count = 0;
-        while (re.exec(seq) !== null) {
-            count++;
-        }
-        output += `>${e.header}\n  Total occurrences of "${pattern}": ${count}\n\n`;
-    }
-    box.textContent = output.trim();
+function toggleDarkMode() {
+    document.body.classList.toggle('dark-mode');
 }
 
-/***************************************************************
- * ORF FINDER
- ***************************************************************/
-function findORFs() {
-    const box = document.getElementById('orfResults');
-    box.textContent = '';
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
+function copyFastaToClipboard() {
+    if(!loadedFasta.length){
+        alert('No sequences to copy.');
         return;
     }
-
-    // We'll define start = ATG, stops = TAA/TAG/TGA
-    const startCodon = 'ATG';
-    const stopCodons = ['TAA','TAG','TGA'];
-
-    let output = '';
-    for (let e of loadedFasta) {
-        const seq = e.sequence.toUpperCase();
-        output += `>${e.header}\n`;
-
-        let foundAny = false;
-        // Three reading frames: 0, 1, 2
-        for (let frame = 0; frame < 3; frame++) {
-            let i = frame;
-            while (i < seq.length - 2) {
-                const codon = seq.slice(i, i+3);
-                if (codon === startCodon) {
-                    // found start
-                    let j = i+3;
-                    let foundStop = -1;
-                    while (j < seq.length - 2) {
-                        const codon2 = seq.slice(j, j+3);
-                        if (stopCodons.includes(codon2)) {
-                            foundStop = j;
-                            break;
-                        }
-                        j += 3;
-                    }
-                    if (foundStop !== -1) {
-                        const orfLength = foundStop + 3 - i; // includes stop codon
-                        const orfSeq = seq.slice(i, foundStop + 3);
-                        // Translate
-                        const prot = translateDNA(orfSeq);
-                        foundAny = true;
-                        output += `  Frame ${frame+1}, Start:${i+1}, Stop:${foundStop+3}, Length:${orfLength} nt\n`;
-                        output += `    Protein: ${prot}\n`;
-                        i = foundStop + 3; // jump past stop
-                    } else {
-                        // no stop found, break
-                        break;
-                    }
-                } else {
-                    i += 3;
-                }
-            }
-        }
-        if (!foundAny) {
-            output += '  No ORFs found.\n';
-        }
-        output += '\n';
-    }
-    box.textContent = output.trim();
+    let text='';
+    loadedFasta.forEach(e=>{
+        text+= `>${e.header}\n${e.sequence}\n`;
+    });
+    navigator.clipboard.writeText(text).then(()=>{
+        alert('FASTA copied.');
+    }).catch(err=>{
+        alert('Clipboard error: '+err.message);
+    });
 }
 
-/***************************************************************
- * K-MER FREQUENCY
- ***************************************************************/
-function computeKmerFrequencies() {
-    const box = document.getElementById('kmerResults');
-    box.textContent = '';
-
-    const k = parseInt(document.getElementById('kmerSize').value, 10);
-    if (isNaN(k) || k < 1) {
-        box.textContent = 'Invalid K value.';
+function saveToSession() {
+    if(!loadedFasta.length){
+        document.getElementById('sessionMsg').textContent='No sequences loaded.';
         return;
     }
-    if (!loadedFasta.length) {
-        box.textContent = 'No sequences loaded.';
+    sessionStorage.setItem('fastaData', JSON.stringify(loadedFasta));
+    document.getElementById('sessionMsg').textContent='FASTA saved to session.';
+}
+function loadFromSession() {
+    let data=sessionStorage.getItem('fastaData');
+    if(!data){
+        document.getElementById('sessionMsg').textContent='No data in session.';
         return;
     }
-
-    let output = '';
-    for (let e of loadedFasta) {
-        output += `>${e.header}\n`;
-        const freqs = getKmerFreq(e.sequence, k);
-        // sort by frequency descending
-        const sortedKmers = Object.keys(freqs).sort((a,b) => freqs[b]-freqs[a]);
-        sortedKmers.forEach(kmer => {
-            output += `  ${kmer}: ${freqs[kmer]}\n`;
-        });
-        output += '\n';
-    }
-    box.textContent = output.trim();
+    loadedFasta=JSON.parse(data);
+    renderFasta(loadedFasta);
+    document.getElementById('sessionMsg').textContent='FASTA restored.';
 }
 
-function getKmerFreq(seq, k) {
-    const freq = {};
-    for (let i = 0; i <= seq.length - k; i++) {
-        const kmer = seq.slice(i, i+k);
-        freq[kmer] = (freq[kmer] || 0) + 1;
-    }
-    return freq;
-}
-
-/***************************************************************
- * DOWNLOAD RESULTS
- ***************************************************************/
-function downloadResults(elementId, filename) {
-    const textContent = document.getElementById(elementId).textContent;
-    if (!textContent.trim()) {
-        alert('No results to download!');
+function exportCSV() {
+    if(!loadedFasta.length){
+        alert('No sequences to export.');
         return;
     }
-    const blob = new Blob([textContent], { type: 'text/plain' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
+    let lines=['header,sequence,length,gc'];
+    loadedFasta.forEach(e=>{
+        let len=e.sequence.length;
+        let gc=gcPercent(e.sequence).toFixed(2);
+        let row=`"${e.header}","${e.sequence}",${len},${gc}`;
+        lines.push(row);
+    });
+    let csv=lines.join('\n');
+    downloadText(csv,'fasta_data.csv');
+}
+
+function exportJSON() {
+    if(!loadedFasta.length){
+        alert('No sequences to export.');
+        return;
+    }
+    let json=JSON.stringify(loadedFasta,null,2);
+    downloadText(json,'fasta_data.json');
+}
+
+/** Download text helper */
+function downloadText(content,filename){
+    const blob=new Blob([content],{type:'text/plain'});
+    const link=document.createElement('a');
+    link.href=URL.createObjectURL(blob);
+    link.download=filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+}
+
+/** Download specific results by element ID */
+function downloadResults(elementId,filename){
+    const content=document.getElementById(elementId).textContent;
+    if(!content.trim()){
+        alert('No content to download.');
+        return;
+    }
+    downloadText(content,filename);
 }
